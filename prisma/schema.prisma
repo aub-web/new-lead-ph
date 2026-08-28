@@ -14,10 +14,10 @@ datasource db {
 // Tracks sync progress per sheet tab — every tab in the spreadsheet is
 // watched (the team archives old data into dated tabs rather than one
 // permanent "leads" tab, so a single global cursor isn't enough). The first
-// time a tab is seen, src/lib/sync.ts seeds lastRowNumber to that tab's
-// current row count instead of 1, so pre-existing historical rows (e.g. 100+
-// already-processed leads in an archive tab) don't all fire as "new" at
-// once — only rows added after that point count as new.
+// time a tab is seen, src/lib/sync.ts backfills every existing PH lead in it
+// into the Lead table (so the dashboard reflects the sheet's actual state)
+// but never notifies about them — only rows added after that point (once
+// lastRowNumber has caught up) trigger Slack/email.
 model TabSyncState {
   tabTitle      String   @id
   lastRowNumber Int
@@ -42,6 +42,12 @@ model Lead {
   contact String?
   country String?
   data    Json
+
+  // True for leads inserted by the one-time backfill when a tab was first
+  // watched, rather than caught live — these were deliberately never sent
+  // to Slack/email (see TabSyncState), and the dashboard shouldn't badge
+  // them "New" just because they were inserted into the DB recently.
+  isBackfill Boolean @default(false)
 
   slackNotifiedAt DateTime?
   emailNotifiedAt DateTime?

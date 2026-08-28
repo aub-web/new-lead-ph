@@ -62,15 +62,37 @@ async function processLead(tabTitle: string, lead: SheetLeadRow, errors: string[
 }
 
 /**
+ * Records a pre-existing lead found the first time a tab is watched, so it
+ * still shows up on the dashboard — but deliberately never calls
+ * notifySlack/notifyEmail, since the team already knows about anything that
+ * was already in the sheet before this app started watching.
+ */
+async function backfillLead(tabTitle: string, lead: SheetLeadRow): Promise<void> {
+  await prisma.lead.upsert({
+    where: { tabTitle_rowNumber: { tabTitle, rowNumber: lead.rowNumber } },
+    update: {},
+    create: {
+      tabTitle,
+      rowNumber: lead.rowNumber,
+      name: guessName(lead.record),
+      contact: guessContact(lead.record),
+      country: guessCountry(lead.record),
+      data: lead.record,
+      isBackfill: true,
+    },
+  });
+}
+
+/**
  * Syncs one tab: finds Philippines-tagged rows added since that tab's last
  * check and processes them. The first time a tab is seen (no TabSyncState
- * row yet), its cursor is seeded to the tab's *current* row count rather
- * than 0 — otherwise every pre-existing row in a tab the app has never
- * watched before (e.g. 100+ rows in an archive tab) would fire as "new" the
- * moment it's first scanned.
+ * row yet), every existing PH lead in it is backfilled into the dashboard
+ * (so nothing already in the sheet looks "missing"), but none of them are
+ * notified about — only rows added after this point trigger Slack/email.
  */
 async function syncTab(tabTitle: string, errors: string[]): Promise<number> {
   const existing = await prisma.tabSyncState.findUnique({ where: { tabTitle } });
+  const isFirstSeen = !existing;
 
   let rows: string[][];
   try {
@@ -86,11 +108,17 @@ async function syncTab(tabTitle: string, errors: string[]): Promise<number> {
     return 0;
   }
 
-  const sinceRowNumber = existing ? existing.lastRowNumber : rows.length;
-  const newLeads = findNewPhLeads(rows, sinceRowNumber);
+  const sinceRowNumber = isFirstSeen ? 0 : existing.lastRowNumber;
+  const leads = findNewPhLeads(rows, sinceRowNumber);
 
-  for (const lead of newLeads) {
-    await processLead(tabTitle, lead, errors);
+  let newLeadsFound = 0;
+  for (const lead of leads) {
+    if (isFirstSeen) {
+      await backfillLead(tabTitle, lead);
+    } else {
+      await processLead(tabTitle, lead, errors);
+      newLeadsFound++;
+    }
   }
 
   await prisma.tabSyncState.upsert({
@@ -107,7 +135,7 @@ async function syncTab(tabTitle: string, errors: string[]): Promise<number> {
     },
   });
 
-  return newLeads.length;
+  return newLeadsFound;
 }
 
 /**

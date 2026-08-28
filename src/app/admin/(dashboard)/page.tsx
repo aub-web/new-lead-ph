@@ -54,7 +54,7 @@ export default async function AdminDashboardPage() {
         <ul className="space-y-3">
           {leads.map((lead) => {
             const fields = lead.data as Record<string, string>;
-            const isNew = now - lead.createdAt.getTime() < 60 * 60 * 1000;
+            const isNew = !lead.isBackfill && now - lead.createdAt.getTime() < 60 * 60 * 1000;
             return (
               <li key={lead.id} className="rounded-xl border border-zinc-200 bg-white p-4">
                 <div className="flex items-start justify-between gap-3">
@@ -70,22 +70,28 @@ export default async function AdminDashboardPage() {
                     {lead.contact && <p className="text-sm text-zinc-500">{lead.contact}</p>}
                     <p className="text-xs text-zinc-400">{lead.tabTitle}</p>
                   </div>
-                  <div className="flex shrink-0 gap-1.5 text-[10px] font-medium uppercase tracking-wide">
-                    <span
-                      className={`rounded-full px-2 py-0.5 ${
-                        lead.slackNotifiedAt ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-400"
-                      }`}
-                    >
-                      Slack
+                  {lead.isBackfill ? (
+                    <span className="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-400">
+                      Already in sheet
                     </span>
-                    <span
-                      className={`rounded-full px-2 py-0.5 ${
-                        lead.emailNotifiedAt ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-400"
-                      }`}
-                    >
-                      Email
-                    </span>
-                  </div>
+                  ) : (
+                    <div className="flex shrink-0 gap-1.5 text-[10px] font-medium uppercase tracking-wide">
+                      <span
+                        className={`rounded-full px-2 py-0.5 ${
+                          lead.slackNotifiedAt ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-400"
+                        }`}
+                      >
+                        Slack
+                      </span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 ${
+                          lead.emailNotifiedAt ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-400"
+                        }`}
+                      >
+                        Email
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <dl className="mt-3 grid grid-cols-1 gap-x-4 gap-y-1 text-sm text-zinc-600 sm:grid-cols-2">
                   {Object.entries(fields)
