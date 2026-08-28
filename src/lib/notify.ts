@@ -1,5 +1,7 @@
 import { Resend } from "resend";
+import { getAllowedEmails } from "@/lib/allowed-emails";
 import { guessContact, guessName, type SheetLeadRow } from "@/lib/leads";
+import { sendSlackDm } from "@/lib/slack";
 
 function formatLeadLines(row: SheetLeadRow): string {
   return Object.entries(row.record)
@@ -8,20 +10,27 @@ function formatLeadLines(row: SheetLeadRow): string {
     .join("\n");
 }
 
+// DMs every allowed teammate individually (rather than posting to a shared
+// channel) — see src/lib/slack.ts. A partial failure (e.g. one teammate
+// isn't in the workspace) is logged but doesn't block the others; only a
+// total failure is surfaced as an error.
 export async function notifySlack(row: SheetLeadRow): Promise<void> {
-  const webhookUrl = process.env.SLACK_WEBHOOK_URL;
-  if (!webhookUrl) return;
+  const recipients = getAllowedEmails();
+  if (recipients.length === 0) return;
 
   const name = guessName(row.record) ?? "New lead";
   const text = `:flag-ph: *New Philippines lead* — ${name} (sheet row ${row.rowNumber})\n${formatLeadLines(row)}`;
 
-  const res = await fetch(webhookUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
+  const results = await Promise.allSettled(
+    recipients.map((email) => sendSlackDm(email, text)),
+  );
+  results.forEach((result, i) => {
+    if (result.status === "rejected") {
+      console.error(`Slack DM to ${recipients[i]} failed:`, result.reason);
+    }
   });
-  if (!res.ok) {
-    throw new Error(`Slack webhook failed: ${res.status} ${await res.text()}`);
+  if (results.every((result) => result.status === "rejected")) {
+    throw new Error("Slack DM failed for every recipient.");
   }
 }
 
