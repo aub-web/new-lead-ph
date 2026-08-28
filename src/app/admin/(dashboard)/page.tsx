@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import SyncButton from "@/components/admin/SyncButton";
+import ClaimSelect from "@/components/admin/ClaimSelect";
+import { dateKey, getLeadDate } from "@/lib/lead-date";
 
 function formatRelative(date: Date): string {
   const diffMin = Math.round((Date.now() - date.getTime()) / 60000);
@@ -10,9 +12,15 @@ function formatRelative(date: Date): string {
   return `${Math.round(diffHr / 24)}d ago`;
 }
 
-export default async function AdminDashboardPage() {
-  const [leads, tabStates] = await Promise.all([
-    prisma.lead.findMany({ orderBy: { createdAt: "desc" }, take: 100 }),
+export default async function AdminDashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ date?: string }>;
+}) {
+  const { date: dateFilter } = await searchParams;
+
+  const [allLeads, tabStates] = await Promise.all([
+    prisma.lead.findMany({ orderBy: { createdAt: "desc" }, take: 500 }),
     prisma.tabSyncState.findMany({ orderBy: { lastSyncedAt: "desc" } }),
   ]);
   // Server component — runs once per request, so this isn't subject to the
@@ -20,12 +28,16 @@ export default async function AdminDashboardPage() {
   // eslint-disable-next-line react-hooks/purity
   const now = Date.now();
 
+  const leads = dateFilter
+    ? allLeads.filter((lead) => dateKey(getLeadDate(lead)) === dateFilter)
+    : allLeads;
+
   const mostRecentSync = tabStates[0]?.lastSyncedAt ?? null;
   const tabErrors = tabStates.filter((tab) => tab.lastError);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-4 py-3">
         <div className="text-xs text-zinc-500">
           {mostRecentSync ? (
             <>
@@ -45,10 +57,33 @@ export default async function AdminDashboardPage() {
         <SyncButton />
       </div>
 
+      <form className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+        <label htmlFor="date">Filter by date</label>
+        <input
+          type="date"
+          id="date"
+          name="date"
+          defaultValue={dateFilter ?? ""}
+          className="rounded-lg border border-zinc-300 px-2 py-1 text-xs text-zinc-700"
+        />
+        <button
+          type="submit"
+          className="rounded-lg bg-zinc-900 px-3 py-1 text-xs font-medium text-white transition hover:bg-zinc-800"
+        >
+          Apply
+        </button>
+        {dateFilter && (
+          <a href="/admin" className="text-zinc-400 underline hover:text-zinc-600">
+            Clear
+          </a>
+        )}
+      </form>
+
       {leads.length === 0 ? (
         <p className="rounded-xl border border-dashed border-zinc-300 px-4 py-10 text-center text-sm text-zinc-500">
-          No Philippines leads yet. New rows tagged Philippines on the sheet
-          will show up here.
+          {dateFilter
+            ? "No Philippines leads on that date."
+            : "No Philippines leads yet. New rows tagged Philippines on the sheet will show up here."}
         </p>
       ) : (
         <ul className="space-y-3">
@@ -68,30 +103,35 @@ export default async function AdminDashboardPage() {
                       )}
                     </p>
                     {lead.contact && <p className="text-sm text-zinc-500">{lead.contact}</p>}
-                    <p className="text-xs text-zinc-400">{lead.tabTitle}</p>
+                    <p className="text-xs text-zinc-400">
+                      {lead.tabTitle} · {dateKey(getLeadDate(lead))}
+                    </p>
                   </div>
-                  {lead.isBackfill ? (
-                    <span className="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-400">
-                      Already in sheet
-                    </span>
-                  ) : (
-                    <div className="flex shrink-0 gap-1.5 text-[10px] font-medium uppercase tracking-wide">
-                      <span
-                        className={`rounded-full px-2 py-0.5 ${
-                          lead.slackNotifiedAt ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-400"
-                        }`}
-                      >
-                        Slack
+                  <div className="flex shrink-0 flex-col items-end gap-1.5">
+                    {lead.isBackfill ? (
+                      <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-400">
+                        Already in sheet
                       </span>
-                      <span
-                        className={`rounded-full px-2 py-0.5 ${
-                          lead.emailNotifiedAt ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-400"
-                        }`}
-                      >
-                        Email
-                      </span>
-                    </div>
-                  )}
+                    ) : (
+                      <div className="flex gap-1.5 text-[10px] font-medium uppercase tracking-wide">
+                        <span
+                          className={`rounded-full px-2 py-0.5 ${
+                            lead.slackNotifiedAt ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-400"
+                          }`}
+                        >
+                          Slack
+                        </span>
+                        <span
+                          className={`rounded-full px-2 py-0.5 ${
+                            lead.emailNotifiedAt ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-400"
+                          }`}
+                        >
+                          Email
+                        </span>
+                      </div>
+                    )}
+                    <ClaimSelect leadId={lead.id} claimedBy={lead.claimedBy} />
+                  </div>
                 </div>
                 <dl className="mt-3 grid grid-cols-1 gap-x-4 gap-y-1 text-sm text-zinc-600 sm:grid-cols-2">
                   {Object.entries(fields)

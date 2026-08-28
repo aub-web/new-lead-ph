@@ -36,13 +36,20 @@ Postgres (Neon) — same stack as Atlas Capture's other internal tools.
    row numbers restarting at 1 in a different tab can't collide with an
    unrelated tab's row 1.
 5. `/admin` lists every Philippines lead ever seen, with badges showing
-   whether Slack/email notification succeeded, and a "Sync now" button.
-   Signing in requires "Sign in with Slack" (`src/lib/slack-oauth.ts`), and
-   only emails in `ALLOWED_EMAILS` are let in.
-6. `netlify/functions/sync-leads.ts` calls `/api/cron/sync` every 5 minutes
-   (schedule set in `netlify.toml`) to check the sheet automatically — see
-   the Vercel deployment note below if deploying there instead, since
-   Netlify Scheduled Functions don't run on Vercel.
+   whether Slack/email notification succeeded, a "Sync now" button, a date
+   filter (against the sheet's own `created_at`, not when this app found
+   the row — see `src/lib/lead-date.ts`), and a claim picker so someone on
+   the roster (`src/lib/roster.ts`) can mark who's handling a lead
+   (`src/lib/actions/lead-actions.ts`). Signing in requires "Sign in with
+   Slack" (`src/lib/slack-oauth.ts`), and only emails in `ALLOWED_EMAILS`
+   are let in.
+6. `vercel.json` schedules a Vercel Cron Job hitting `/api/cron/sync` every
+   5 minutes — **note**: Vercel's Hobby plan only runs cron jobs once a
+   day regardless of the configured schedule; every-5-minutes needs a Pro
+   plan, or an external pinger (e.g. cron-job.org) hitting the same URL with
+   `Authorization: Bearer $CRON_SECRET` instead. On Netlify,
+   `netlify/functions/sync-leads.ts` does the same job on the schedule set
+   in `netlify.toml`.
 
 ## Getting started
 
@@ -126,11 +133,14 @@ scaffolding.
    `https://<your-deploy-url>/api/admin/google-oauth/callback`) as Redirect
    URLs/URIs in the Slack app's "Sign In with Slack" settings and the Google
    Cloud OAuth client, respectively.
-4. **Automatic sync**: on Netlify, `netlify/functions/sync-leads.ts` runs on
-   the schedule set in `netlify.toml` automatically. **Vercel does not run
-   that function** — a Vercel Cron Job (`vercel.json`) calling
-   `/api/cron/sync` would need to be added for the same automatic behavior
-   there. Until then, use the dashboard's "Sync now" button.
+4. **Automatic sync**: `vercel.json` already configures a Vercel Cron Job
+   for this. On the **Hobby plan it only actually runs once a day** (a
+   Vercel platform limit, not something this app controls) — for real
+   every-5-minutes checking either upgrade to Pro, or point a free external
+   pinger (e.g. [cron-job.org](https://cron-job.org)) at
+   `https://<your-deploy-url>/api/cron/sync` with header
+   `Authorization: Bearer <CRON_SECRET>` on whatever interval you want. The
+   dashboard's "Sync now" button always works regardless.
 
 ## Project structure
 
@@ -150,5 +160,10 @@ scaffolding.
 - `src/lib/notify.ts` — Slack channel + email notifications.
 - `src/lib/slack-oauth.ts` — "Sign in with Slack" OpenID Connect flow.
 - `src/lib/allowed-emails.ts` — the shared allowlist.
+- `src/lib/roster.ts` — who can claim a lead.
+- `src/lib/lead-date.ts` — resolves a lead's real submission date (from the
+  sheet, not DB insert time) for the dashboard's date filter.
+- `src/lib/actions/lead-actions.ts` — the claim server action.
 - `src/lib/sync.ts` — orchestrates the above and updates the DB.
 - `src/proxy.ts` — protects `/admin/*` pages and `/api/admin/*` routes.
+- `vercel.json` — Vercel Cron Job schedule for automatic syncing.

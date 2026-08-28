@@ -49,6 +49,11 @@ model Lead {
   // them "New" just because they were inserted into the DB recently.
   isBackfill Boolean @default(false)
 
+  // Who on the roster (see src/lib/roster.ts) is handling this lead. Plain
+  // string rather than a foreign key/enum — the roster is a short fixed
+  // list managed in code, not something with its own admin UI yet.
+  claimedBy String?
+
   slackNotifiedAt DateTime?
   emailNotifiedAt DateTime?
 
