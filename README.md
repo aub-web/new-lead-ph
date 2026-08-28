@@ -18,9 +18,9 @@ Postgres (Neon) — same stack as Atlas Capture's other internal tools.
    (Resend) for each new lead.
 4. `src/lib/sync.ts` ties it together and is idempotent — `Lead.rowNumber` is
    unique, so re-running never double-notifies.
-5. `/admin` (PIN-gated) lists every Philippines lead ever seen, with badges
-   showing whether Slack/email notification succeeded, and a "Sync now"
-   button.
+5. `/admin` lists every Philippines lead ever seen, with badges showing
+   whether Slack/email notification succeeded, and a "Sync now" button. It
+   has no login — anyone with the URL can view it.
 6. `netlify/functions/sync-leads.ts` calls `/api/cron/sync` every 5 minutes
    (schedule set in `netlify.toml`) to check the sheet automatically.
 
@@ -32,8 +32,7 @@ npx prisma migrate dev   # applies the schema to your Postgres database
 npm run dev
 ```
 
-Open [http://localhost:3000/admin](http://localhost:3000/admin) and enter the
-PIN from `ADMIN_PIN`.
+Open [http://localhost:3000/admin](http://localhost:3000/admin).
 
 To test the sheet → Slack/email pipeline without waiting for the cron:
 
@@ -47,7 +46,6 @@ Copy `.env.example` to `.env` and fill in:
 
 - `DATABASE_URL` / `DIRECT_DATABASE_URL` — Neon Postgres connection strings
   (pooled and direct — see comments in `.env.example`).
-- `ADMIN_PIN` / `ADMIN_SESSION_SECRET` — PIN gate for `/admin`.
 - `CRON_SECRET` — shared secret the scheduled sync uses to call
   `/api/cron/sync`.
 - `GOOGLE_SERVICE_ACCOUNT_EMAIL` / `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` — a
@@ -78,13 +76,12 @@ still work).
 
 ## Project structure
 
-- `src/app/admin/` — PIN-gated dashboard listing Philippines leads.
+- `src/app/admin/` — dashboard listing Philippines leads (no login).
 - `src/app/api/cron/sync/route.ts` — sync endpoint called by the scheduled
   function (secret-protected).
 - `src/app/api/admin/sync/route.ts` — sync endpoint for the dashboard's
-  "Sync now" button (session-protected).
+  "Sync now" button.
 - `src/lib/sheets.ts` — Google Sheets API client.
 - `src/lib/leads.ts` — Philippines-row filtering.
 - `src/lib/notify.ts` — Slack + email notifications.
 - `src/lib/sync.ts` — orchestrates the above and updates the DB.
-- `src/proxy.ts` — protects `/admin/*` pages and `/api/admin/*` routes.
