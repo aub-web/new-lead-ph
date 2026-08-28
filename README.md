@@ -2,7 +2,8 @@
 
 Watches the [global leads Google Sheet](https://docs.google.com/spreadsheets/d/1XjVc5buQ_FW_XObI4dSBWxN3HxTxSoWEpm4gXpCDnMI/edit)
 for new Philippines-tagged rows and notifies the Philippines team via a
-Slack DM to each teammate, email, and a live in-app dashboard.
+message in the `#new-lead-ph` Slack channel, email, and a live in-app
+dashboard.
 
 Built with Next.js (App Router), TypeScript, Tailwind CSS, and Prisma on
 Postgres (Neon) — same stack as Atlas Capture's other internal tools.
@@ -14,9 +15,9 @@ Postgres (Neon) — same stack as Atlas Capture's other internal tools.
 2. `src/lib/leads.ts` filters rows by the country/region column for
    Philippines values, keeping only rows added since the last check
    (`SyncState.lastRowNumber` in the DB).
-3. `src/lib/notify.ts` DMs each email in `ALLOWED_EMAILS` on Slack (via
-   `src/lib/slack.ts`, using a bot token to look up each person's Slack user
-   ID and open a DM) and sends an email (Resend) for each new lead.
+3. `src/lib/notify.ts` posts to the `#new-lead-ph` Slack channel (via an
+   Incoming Webhook, pinging `@channel` so it's not missed) and sends an
+   email (Resend) for each new lead.
 4. `src/lib/sync.ts` ties it together and is idempotent — `Lead.rowNumber` is
    unique, so re-running never double-notifies.
 5. `/admin` lists every Philippines lead ever seen, with badges showing
@@ -52,8 +53,9 @@ Copy `.env.example` to `.env` and fill in:
 - `CRON_SECRET` — shared secret the scheduled sync uses to call
   `/api/cron/sync`.
 - `SESSION_SECRET` — signs the `/admin` session cookie.
-- `ALLOWED_EMAILS` — the only people who can sign in to `/admin` and who get
-  DMed on Slack about new leads. Comma-separated.
+- `ALLOWED_EMAILS` — the only people who can sign in to `/admin`.
+  Comma-separated. (Who gets Slack-notified is controlled separately by who's
+  in the `#new-lead-ph` channel — see `SLACK_WEBHOOK_URL` below.)
 - `GOOGLE_SERVICE_ACCOUNT_EMAIL` / `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` — a
   Google Cloud service account with the Sheets API enabled. Share the lead
   sheet with the service account's email as a **Viewer** (Share → paste the
@@ -69,15 +71,15 @@ Copy `.env.example` to `.env` and fill in:
   Slack" and add both `http://localhost:3000/api/auth/slack/callback` and
   your production callback URL (e.g.
   `https://your-site.netlify.app/api/auth/slack/callback`) as Redirect URLs.
-- `SLACK_BOT_TOKEN` — a Bot User OAuth Token (`xoxb-...`) from the same
-  Slack app's OAuth & Permissions page, after adding the Bot Token Scopes
-  `users:read.email`, `chat:write`, and `im:write`, then reinstalling the
-  app to your workspace. Used to DM `ALLOWED_EMAILS` about new leads.
+- `SLACK_WEBHOOK_URL` — an Incoming Webhook for the `#new-lead-ph` channel
+  (same Slack app's Incoming Webhooks page → Add New Webhook to Workspace →
+  pick `#new-lead-ph`). Add everyone who should be notified to that channel;
+  every message pings `@channel`.
 - `RESEND_API_KEY` / `EMAIL_FROM` / `EMAIL_RECIPIENTS` — email alerts via
   [Resend](https://resend.com).
 
 Any notification channel left unconfigured is silently skipped (e.g. no
-`RESEND_API_KEY` just means no emails — Slack DMs and the dashboard still
+`RESEND_API_KEY` just means no emails — Slack and the dashboard still
 work).
 
 ## Deploying (Netlify)
@@ -103,8 +105,7 @@ work).
   "Sync now" button (session-protected).
 - `src/lib/sheets.ts` — Google Sheets API client.
 - `src/lib/leads.ts` — Philippines-row filtering.
-- `src/lib/notify.ts` — Slack DM + email notifications.
-- `src/lib/slack.ts` — bot-token Slack Web API calls (user lookup, DM).
+- `src/lib/notify.ts` — Slack channel + email notifications.
 - `src/lib/slack-oauth.ts` — "Sign in with Slack" OpenID Connect flow.
 - `src/lib/allowed-emails.ts` — the shared allowlist.
 - `src/lib/sync.ts` — orchestrates the above and updates the DB.
