@@ -11,24 +11,31 @@ function formatRelative(date: Date): string {
 }
 
 export default async function AdminDashboardPage() {
-  const [leads, state] = await Promise.all([
-    prisma.lead.findMany({ orderBy: { rowNumber: "desc" }, take: 100 }),
-    prisma.syncState.findUnique({ where: { id: "singleton" } }),
+  const [leads, tabStates] = await Promise.all([
+    prisma.lead.findMany({ orderBy: { createdAt: "desc" }, take: 100 }),
+    prisma.tabSyncState.findMany({ orderBy: { lastSyncedAt: "desc" } }),
   ]);
   // Server component — runs once per request, so this isn't subject to the
   // re-render instability the purity rule guards against.
   // eslint-disable-next-line react-hooks/purity
   const now = Date.now();
 
+  const mostRecentSync = tabStates[0]?.lastSyncedAt ?? null;
+  const tabErrors = tabStates.filter((tab) => tab.lastError);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-4 py-3">
         <div className="text-xs text-zinc-500">
-          {state ? (
+          {mostRecentSync ? (
             <>
-              Last checked {formatRelative(state.lastSyncedAt)}
-              {state.lastError && (
-                <span className="ml-2 text-red-600">— {state.lastError}</span>
+              Last checked {formatRelative(mostRecentSync)} — watching{" "}
+              {tabStates.length} tab{tabStates.length === 1 ? "" : "s"}
+              {tabErrors.length > 0 && (
+                <span className="ml-2 text-red-600">
+                  —{" "}
+                  {tabErrors.map((tab) => `${tab.tabTitle}: ${tab.lastError}`).join("; ")}
+                </span>
               )}
             </>
           ) : (
@@ -61,6 +68,7 @@ export default async function AdminDashboardPage() {
                       )}
                     </p>
                     {lead.contact && <p className="text-sm text-zinc-500">{lead.contact}</p>}
+                    <p className="text-xs text-zinc-400">{lead.tabTitle}</p>
                   </div>
                   <div className="flex shrink-0 gap-1.5 text-[10px] font-medium uppercase tracking-wide">
                     <span

@@ -20,36 +20,24 @@ function getAuthClient(): OAuth2Client {
 }
 
 /**
- * The global team periodically rotates to a new tab (e.g. "Aug 27 -
- * Current") and archives the old one (e.g. "Before Aug 27") rather than
- * appending forever to one tab. Instead of a fixed tab name, find whichever
- * tab's title contains GOOGLE_SHEET_TAB_MATCH (default "current",
- * case-insensitive) — the leftmost/lowest-index match wins if there's more
- * than one.
+ * The team archives old data into dated tabs (e.g. "Before Aug 27") rather
+ * than keeping one permanent "leads" tab, so every tab is watched — see
+ * src/lib/sync.ts for how each tab's cursor is tracked independently.
  */
-export async function resolveActiveTabTitle(): Promise<string> {
+export async function listSheetTabs(): Promise<string[]> {
   const sheetId = process.env.GOOGLE_SHEET_ID;
   if (!sheetId) throw new Error("GOOGLE_SHEET_ID is not set.");
-  const tabMatch = (process.env.GOOGLE_SHEET_TAB_MATCH ?? "current").toLowerCase();
 
   const client = getAuthClient();
   const res = await client.request<{
-    sheets?: { properties?: { title?: string; index?: number } }[];
+    sheets?: { properties?: { title?: string } }[];
   }>({
     url: `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=sheets.properties`,
   });
 
-  const tabs = (res.data.sheets ?? [])
+  return (res.data.sheets ?? [])
     .map((sheet) => sheet.properties?.title)
     .filter((title): title is string => Boolean(title));
-  const match = tabs.find((title) => title.toLowerCase().includes(tabMatch));
-
-  if (!match) {
-    throw new Error(
-      `No tab title contains "${tabMatch}" (tabs found: ${tabs.join(", ") || "none"}). Set GOOGLE_SHEET_TAB_MATCH to match the active tab's name.`,
-    );
-  }
-  return match;
 }
 
 /** Fetches every row of the given tab (columns from GOOGLE_SHEET_COLUMN_RANGE, default A:Z), including the header row. */
