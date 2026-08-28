@@ -1,0 +1,45 @@
+// Prisma schema for New Lead PH — watches the global leads Google Sheet and
+// notifies the Philippines team about new Philippines-tagged rows.
+// Runs on Postgres (Neon) via the pg driver adapter — see src/lib/prisma.ts.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Tracks how far into the sheet we've synced. A single row (id "singleton"),
+// keyed on the sheet's row number rather than content, since leads are
+// appended to the bottom of the sheet by the global team.
+model SyncState {
+  id            String   @id @default("singleton")
+  lastRowNumber Int      @default(1)
+  lastSyncedAt  DateTime @default(now())
+  lastError     String?
+}
+
+// One row from the sheet that matched the Philippines filter. rowNumber is
+// unique so a re-run of the sync job (e.g. overlapping cron ticks) can never
+// insert — and re-notify about — the same row twice.
+model Lead {
+  id       String @id @default(cuid())
+  rowNumber Int   @unique
+
+  // Best-effort extracted fields for display; the full row is kept in `data`
+  // since sheet columns vary and this app shouldn't need a migration every
+  // time the global team adds a field.
+  name    String?
+  contact String?
+  country String?
+  data    Json
+
+  slackNotifiedAt DateTime?
+  emailNotifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}

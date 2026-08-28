@@ -1,0 +1,10 @@
+[build]
+  command = "prisma migrate deploy && next build"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Polls the Google Sheet for new Philippines leads every 5 minutes and sends
+# Slack/email notifications for anything new. See netlify/functions/sync-leads.ts.
+[functions."sync-leads"]
+  schedule = "*/5 * * * *"
