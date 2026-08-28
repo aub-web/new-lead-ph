@@ -14,19 +14,29 @@ datasource db {
 // Tracks how far into the sheet we've synced. A single row (id "singleton"),
 // keyed on the sheet's row number rather than content, since leads are
 // appended to the bottom of the sheet by the global team.
+//
+// activeTabTitle tracks which tab lastRowNumber refers to — the team
+// periodically rotates to a new "<date> - Current" tab and archives the old
+// one (e.g. "Before Aug 27"). When the resolved current tab's title changes,
+// src/lib/sync.ts resets lastRowNumber back to the header row instead of
+// carrying over a row count that belonged to a different, now-archived tab.
 model SyncState {
-  id            String   @id @default("singleton")
-  lastRowNumber Int      @default(1)
-  lastSyncedAt  DateTime @default(now())
-  lastError     String?
+  id             String   @id @default("singleton")
+  activeTabTitle String?
+  lastRowNumber  Int      @default(1)
+  lastSyncedAt   DateTime @default(now())
+  lastError      String?
 }
 
-// One row from the sheet that matched the Philippines filter. rowNumber is
-// unique so a re-run of the sync job (e.g. overlapping cron ticks) can never
-// insert — and re-notify about — the same row twice.
+// One row from the sheet that matched the Philippines filter. Uniqueness is
+// (tabTitle, rowNumber) rather than just rowNumber, since row numbers reset
+// to 1 in every new tab the team rotates to — without tabTitle, "row 2" in a
+// freshly rotated tab would collide with a since-archived "row 2" from the
+// old tab and never get notified.
 model Lead {
-  id       String @id @default(cuid())
-  rowNumber Int   @unique
+  id        String @id @default(cuid())
+  tabTitle  String
+  rowNumber Int
 
   // Best-effort extracted fields for display; the full row is kept in `data`
   // since sheet columns vary and this app shouldn't need a migration every
@@ -41,5 +51,6 @@ model Lead {
 
   createdAt DateTime @default(now())
 
+  @@unique([tabTitle, rowNumber])
   @@index([createdAt])
 }

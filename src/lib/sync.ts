@@ -1,9 +1,10 @@
 import { prisma } from "@/lib/prisma";
-import { fetchSheetRows } from "@/lib/sheets";
+import { fetchSheetRows, resolveActiveTabTitle } from "@/lib/sheets";
 import { findNewPhLeads, guessContact, guessCountry, guessName } from "@/lib/leads";
 import { notifyEmail, notifySlack } from "@/lib/notify";
 
 export interface SyncResult {
+  activeTab: string;
   newLeadsFound: number;
   errors: string[];
 }
@@ -13,8 +14,8 @@ const SYNC_STATE_ID = "singleton";
 /**
  * Pulls the sheet, finds Philippines-tagged rows added since the last sync,
  * records them, and fires Slack/email notifications. Safe to run
- * concurrently/repeatedly — rowNumber is unique, so a row already seen is
- * never re-inserted or re-notified.
+ * concurrently/repeatedly — (tabTitle, rowNumber) is unique, so a row
+ * already seen is never re-inserted or re-notified.
  */
 export async function syncLeads(): Promise<SyncResult> {
   const errors: string[] = [];
@@ -25,9 +26,11 @@ export async function syncLeads(): Promise<SyncResult> {
     create: { id: SYNC_STATE_ID },
   });
 
+  let activeTab: string;
   let rows: string[][];
   try {
-    rows = await fetchSheetRows();
+    activeTab = await resolveActiveTabTitle();
+    rows = await fetchSheetRows(activeTab);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await prisma.syncState.update({
@@ -37,16 +40,24 @@ export async function syncLeads(): Promise<SyncResult> {
     throw err;
   }
 
-  const newLeads = findNewPhLeads(rows, state.lastRowNumber);
-  let highestRowNumber = state.lastRowNumber;
+  // The team rotates to a fresh tab periodically (e.g. "Aug 27 - Current"
+  // replaced by a later "Sept 3 - Current", with the old one archived). Row
+  // numbers restart at 1 in the new tab, so a row count from the previous
+  // tab is meaningless here — start this tab's cursor from scratch.
+  const tabRotated = state.activeTabTitle !== null && state.activeTabTitle !== activeTab;
+  const sinceRowNumber = tabRotated ? 1 : state.lastRowNumber;
+
+  const newLeads = findNewPhLeads(rows, sinceRowNumber);
+  let highestRowNumber = sinceRowNumber;
 
   for (const lead of newLeads) {
     highestRowNumber = Math.max(highestRowNumber, lead.rowNumber);
 
     const saved = await prisma.lead.upsert({
-      where: { rowNumber: lead.rowNumber },
+      where: { tabTitle_rowNumber: { tabTitle: activeTab, rowNumber: lead.rowNumber } },
       update: {},
       create: {
+        tabTitle: activeTab,
         rowNumber: lead.rowNumber,
         name: guessName(lead.record),
         contact: guessContact(lead.record),
@@ -91,11 +102,12 @@ export async function syncLeads(): Promise<SyncResult> {
   await prisma.syncState.update({
     where: { id: SYNC_STATE_ID },
     data: {
+      activeTabTitle: activeTab,
       lastRowNumber: highestRowNumber,
       lastSyncedAt: new Date(),
       lastError: null,
     },
   });
 
-  return { newLeadsFound: newLeads.length, errors };
+  return { activeTab, newLeadsFound: newLeads.length, errors };
 }

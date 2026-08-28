@@ -17,20 +17,31 @@ Postgres (Neon) — same stack as Atlas Capture's other internal tools.
    Capture's Google Workspace org policy blocks service account key
    creation, so this app authorizes as a person instead — any account
    already invited to the sheet works, no sharing step needed.)
+   The sheet has no single permanent "leads" tab — the team periodically
+   rotates to a new `"<date> - Current"` tab and archives the old one (e.g.
+   `"Aug 27 - Current"` / `"Before Aug 27"`). `resolveActiveTabTitle()` finds
+   whichever tab's title contains `GOOGLE_SHEET_TAB_MATCH` (default
+   `"current"`) each sync, rather than a fixed tab name that would silently
+   go stale after the next rotation.
 2. `src/lib/leads.ts` filters rows by the country/region column for
    Philippines values, keeping only rows added since the last check
-   (`SyncState.lastRowNumber` in the DB).
+   (`SyncState.lastRowNumber` in the DB — reset to the header row whenever
+   `SyncState.activeTabTitle` shows the active tab just changed, since row
+   numbers restart at 1 in a freshly rotated tab).
 3. `src/lib/notify.ts` posts to the `#new-lead-ph` Slack channel (via an
    Incoming Webhook, pinging `@channel` so it's not missed) and sends an
    email (Resend) for each new lead.
-4. `src/lib/sync.ts` ties it together and is idempotent — `Lead.rowNumber` is
-   unique, so re-running never double-notifies.
+4. `src/lib/sync.ts` ties it together and is idempotent — `Lead` has a
+   unique `(tabTitle, rowNumber)`, so re-running never double-notifies, and a
+   rotated tab's row numbers can't collide with the archived tab's.
 5. `/admin` lists every Philippines lead ever seen, with badges showing
    whether Slack/email notification succeeded, and a "Sync now" button.
    Signing in requires "Sign in with Slack" (`src/lib/slack-oauth.ts`), and
    only emails in `ALLOWED_EMAILS` are let in.
 6. `netlify/functions/sync-leads.ts` calls `/api/cron/sync` every 5 minutes
-   (schedule set in `netlify.toml`) to check the sheet automatically.
+   (schedule set in `netlify.toml`) to check the sheet automatically — see
+   the Vercel deployment note below if deploying there instead, since
+   Netlify Scheduled Functions don't run on Vercel.
 
 ## Getting started
 
@@ -74,9 +85,15 @@ Copy `.env.example` to `.env` and fill in:
   refresh token — paste it in as this var and redeploy. This step only needs
   to be repeated if the token is ever revoked.
 - `GOOGLE_SHEET_ID` — already set to the global leads sheet.
-- `GOOGLE_SHEET_RANGE` — which tab/columns to read, e.g. `Sheet1!A:Z`.
-- `PH_COUNTRY_COLUMN` — exact header text of the country/region column (the
-  app guesses if unset).
+- `GOOGLE_SHEET_TAB_MATCH` — case-insensitive substring to find in tab
+  titles to pick the active one (default `"current"`, matching this sheet's
+  `"<date> - Current"` naming). Update if the team's naming convention
+  changes.
+- `GOOGLE_SHEET_COLUMN_RANGE` — column range within that tab, e.g. `A:Z`.
+- `PH_COUNTRY_COLUMN` — exact header text of the country/region column
+  (default `"country"` for this sheet — it also has a `"phoneCountry"`
+  column the app's fallback guess could match instead, so this is set
+  explicitly rather than left to guess).
 - `PH_MATCH_VALUES` — comma-separated values that count as Philippines.
 - `SLACK_CLIENT_ID` / `SLACK_CLIENT_SECRET` — "Sign in with Slack" (OpenID
   Connect) credentials for the `/admin` login. Set up in your Slack app at
@@ -95,16 +112,27 @@ Any notification channel left unconfigured is silently skipped (e.g. no
 `RESEND_API_KEY` just means no emails — Slack and the dashboard still
 work).
 
-## Deploying (Netlify)
+## Deploying
 
-1. Push this repo to GitHub and connect it in Netlify.
-2. Set all the env vars above in Site settings → Environment variables.
-3. Add the production callback URL
-   (`https://<your-site>.netlify.app/api/auth/slack/callback`) as a Redirect
-   URL in the Slack app's "Sign In with Slack" settings.
-4. Netlify's build runs `prisma migrate deploy && next build` (see
-   `netlify.toml`) and picks up `netlify/functions/sync-leads.ts` as a
-   scheduled function automatically.
+Currently deployed on **Vercel** (`new-lead-ph.vercel.app`), though the repo
+also has Netlify config (`netlify.toml`, `netlify/functions/`) from initial
+scaffolding.
+
+1. Push this repo to GitHub and import it in Vercel (or connect it in
+   Netlify).
+2. Set all the env vars above in the project's environment variable
+   settings, then redeploy — adding/changing env vars doesn't restart an
+   existing deployment on its own.
+3. Add the production callback URLs
+   (`https://<your-deploy-url>/api/auth/slack/callback` and
+   `https://<your-deploy-url>/api/admin/google-oauth/callback`) as Redirect
+   URLs/URIs in the Slack app's "Sign In with Slack" settings and the Google
+   Cloud OAuth client, respectively.
+4. **Automatic sync**: on Netlify, `netlify/functions/sync-leads.ts` runs on
+   the schedule set in `netlify.toml` automatically. **Vercel does not run
+   that function** — a Vercel Cron Job (`vercel.json`) calling
+   `/api/cron/sync` would need to be added for the same automatic behavior
+   there. Until then, use the dashboard's "Sync now" button.
 
 ## Project structure
 
@@ -117,7 +145,8 @@ work).
 - `src/app/api/admin/sync/route.ts` — sync endpoint for the dashboard's
   "Sync now" button (session-protected).
 - `src/app/api/admin/google-oauth/` — one-time "connect Google Sheets" flow.
-- `src/lib/sheets.ts` — Google Sheets API client (uses the refresh token).
+- `src/lib/sheets.ts` — Google Sheets API client (active-tab resolution +
+  reading rows, using the refresh token).
 - `src/lib/google-oauth-setup.ts` — the one-time OAuth flow's exchange logic.
 - `src/lib/leads.ts` — Philippines-row filtering.
 - `src/lib/notify.ts` — Slack channel + email notifications.
