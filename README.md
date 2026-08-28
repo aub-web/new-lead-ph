@@ -43,13 +43,16 @@ Postgres (Neon) — same stack as Atlas Capture's other internal tools.
    (`src/lib/actions/lead-actions.ts`). Signing in requires "Sign in with
    Slack" (`src/lib/slack-oauth.ts`), and only emails in `ALLOWED_EMAILS`
    are let in.
-6. `vercel.json` schedules a Vercel Cron Job hitting `/api/cron/sync` every
-   5 minutes — **note**: Vercel's Hobby plan only runs cron jobs once a
-   day regardless of the configured schedule; every-5-minutes needs a Pro
-   plan, or an external pinger (e.g. cron-job.org) hitting the same URL with
-   `Authorization: Bearer $CRON_SECRET` instead. On Netlify,
-   `netlify/functions/sync-leads.ts` does the same job on the schedule set
-   in `netlify.toml`.
+6. `vercel.json` schedules a Vercel Cron Job hitting `/api/cron/sync` once a
+   day, as a fallback safety net — **note**: on the Hobby plan, a cron
+   expression that would run *more* than once a day doesn't just get
+   downgraded, it **fails the entire deployment** ("Hobby accounts are
+   limited to daily cron jobs"), so don't tighten this schedule without a
+   Pro plan. For real near-real-time checking, an external pinger (e.g.
+   [cron-job.org](https://cron-job.org)) hits the same URL every 5 minutes
+   with header `Authorization: Bearer $CRON_SECRET`. On Netlify,
+   `netlify/functions/sync-leads.ts` does the every-5-minutes job instead,
+   on the schedule set in `netlify.toml`.
 
 ## Getting started
 
