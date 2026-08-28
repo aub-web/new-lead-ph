@@ -1,25 +1,21 @@
-import { JWT } from "google-auth-library";
+import { OAuth2Client } from "google-auth-library";
 
-let authClient: JWT | null = null;
+let authClient: OAuth2Client | null = null;
 
-function getAuthClient(): JWT {
+function getAuthClient(): OAuth2Client {
   if (authClient) return authClient;
 
-  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-  const rawKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
-  if (!email || !rawKey) {
+  const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+  const refreshToken = process.env.GOOGLE_OAUTH_REFRESH_TOKEN;
+  if (!clientId || !clientSecret || !refreshToken) {
     throw new Error(
-      "GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY must be set.",
+      "GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, and GOOGLE_OAUTH_REFRESH_TOKEN must be set. Visit /api/admin/google-oauth to generate a refresh token.",
     );
   }
 
-  authClient = new JWT({
-    email,
-    // .env files can't hold literal newlines, so the key is stored with
-    // escaped "\n" sequences and unescaped here.
-    key: rawKey.replace(/\\n/g, "\n"),
-    scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
-  });
+  authClient = new OAuth2Client({ clientId, clientSecret });
+  authClient.setCredentials({ refresh_token: refreshToken });
   return authClient;
 }
 

@@ -10,8 +10,13 @@ Postgres (Neon) — same stack as Atlas Capture's other internal tools.
 
 ## How it works
 
-1. `src/lib/sheets.ts` reads the sheet via the Google Sheets API using a
-   service account (read-only).
+1. `src/lib/sheets.ts` reads the sheet via the Google Sheets API, authorized
+   as a real Google account (read-only) via OAuth — see
+   `src/lib/google-oauth-setup.ts` and the one-time `/api/admin/google-oauth`
+   flow. (A service account would normally be used here instead, but Atlas
+   Capture's Google Workspace org policy blocks service account key
+   creation, so this app authorizes as a person instead — any account
+   already invited to the sheet works, no sharing step needed.)
 2. `src/lib/leads.ts` filters rows by the country/region column for
    Philippines values, keeping only rows added since the last check
    (`SyncState.lastRowNumber` in the DB).
@@ -56,10 +61,18 @@ Copy `.env.example` to `.env` and fill in:
 - `ALLOWED_EMAILS` — the only people who can sign in to `/admin`.
   Comma-separated. (Who gets Slack-notified is controlled separately by who's
   in the `#new-lead-ph` channel — see `SLACK_WEBHOOK_URL` below.)
-- `GOOGLE_SERVICE_ACCOUNT_EMAIL` / `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` — a
-  Google Cloud service account with the Sheets API enabled. Share the lead
-  sheet with the service account's email as a **Viewer** (Share → paste the
-  `...@...iam.gserviceaccount.com` address).
+- `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` — from Google Cloud
+  Console → APIs & Services → Credentials → Create Credentials → OAuth
+  client ID → Web application. Add
+  `<your-deploy-url>/api/admin/google-oauth/callback` (and the localhost
+  equivalent) as an authorized redirect URI. Requires the Google Sheets API
+  to be enabled on the project.
+- `GOOGLE_OAUTH_REFRESH_TOKEN` — leave blank at first. After deploying with
+  the two vars above set, sign in to `/admin` and visit
+  `/api/admin/google-oauth`. Sign in with a Google account that already has
+  Viewer (or better) access to the lead sheet; the callback page shows a
+  refresh token — paste it in as this var and redeploy. This step only needs
+  to be repeated if the token is ever revoked.
 - `GOOGLE_SHEET_ID` — already set to the global leads sheet.
 - `GOOGLE_SHEET_RANGE` — which tab/columns to read, e.g. `Sheet1!A:Z`.
 - `PH_COUNTRY_COLUMN` — exact header text of the country/region column (the
@@ -103,7 +116,9 @@ work).
   function (secret-protected).
 - `src/app/api/admin/sync/route.ts` — sync endpoint for the dashboard's
   "Sync now" button (session-protected).
-- `src/lib/sheets.ts` — Google Sheets API client.
+- `src/app/api/admin/google-oauth/` — one-time "connect Google Sheets" flow.
+- `src/lib/sheets.ts` — Google Sheets API client (uses the refresh token).
+- `src/lib/google-oauth-setup.ts` — the one-time OAuth flow's exchange logic.
 - `src/lib/leads.ts` — Philippines-row filtering.
 - `src/lib/notify.ts` — Slack channel + email notifications.
 - `src/lib/slack-oauth.ts` — "Sign in with Slack" OpenID Connect flow.
